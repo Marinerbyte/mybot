@@ -1,0 +1,5 @@
+python-dotenv
+requests
+websocket-client
+psycopg2-binary
+Flask
