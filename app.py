@@ -1,5 +1,3 @@
-# app.py (Login / Session Controller)
-
 import os
 import requests
 import time
@@ -9,7 +7,7 @@ from dotenv import load_dotenv
 
 # Import other modules as per project structure
 from bot_engine import HowdiesBotEngine
-from plugins_loader import PluginLoader
+from plugins_loader import PluginLoader # Import PluginLoader
 from db import DatabaseManager
 from ui import start_ui_server, ui_log_queue, bot_status_event, plugins_status_event
 
@@ -27,11 +25,7 @@ def enforce_single_session_policy():
     - Howdies API specific checks (if available).
     For this skeleton, we'll assume a simple flag or process check.
     """
-    # For now, a very basic check.
-    # A more robust solution for "ghost sessions" would require server-side state or
-    # a dedicated external service.
     app_logger.info("Enforcing single session policy...")
-    # Add actual logic here if using file locks or other local mechanisms.
     pass
 
 def main():
@@ -52,6 +46,7 @@ def main():
 
     app_logger.info(f"Attempting to log in bot: {bot_id}")
     session_token = None
+    bot_user_id = None # Initialize bot_user_id here
     try:
         # Authenticate with Howdies API
         login_url = "https://api.howdies.app/api/login"
@@ -60,13 +55,14 @@ def main():
         response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
         login_data = response.json()
         session_token = login_data.get("token")
+        
+        # Capture bot's own ID from login response if available
+        bot_user_id = login_data.get("userID") or login_data.get("userid") or login_data.get("id")
+
         if not session_token:
             app_logger.critical("Login failed: No session token received.")
             return
         
-        # Simulate storing initial bot_id if login_data provides it
-        bot_user_id = login_data.get("userID") or login_data.get("userid") or login_data.get("id")
-
         app_logger.info("Bot successfully authenticated with Howdies API.")
 
     except requests.exceptions.RequestException as e:
@@ -86,30 +82,30 @@ def main():
         return
 
     # Initialize Bot Engine
+    # Pass bot_user_id to the engine, it will be updated by 'login' event handler as well
     bot_engine = HowdiesBotEngine(
         session_token=session_token,
-        bot_id=bot_user_id, # Use the ID from login data if available, otherwise fallback to BOT_ID
+        bot_id=bot_user_id, 
         default_room_name=default_room,
         master_admin_username=master_admin_username,
-        db_manager=db_manager, # Pass DB manager to engine
-        ui_log_queue=ui_log_queue, # Pass UI's log queue for real-time logs
-        bot_status_event=bot_status_event # Pass event for status updates
+        db_manager=db_manager,
+        ui_log_queue=ui_log_queue,
+        bot_status_event=bot_status_event
     )
 
-    # Load Plugins
+    # Initialize Plugin Loader
     plugin_loader = PluginLoader()
-    plugin_loader.load_plugins(bot_engine, plugins_status_event)
+    plugin_loader.load_plugins(bot_engine, plugins_status_event) # Pass plugin_loader_instance
 
     # Start Bot Engine in a separate thread
     bot_thread = threading.Thread(target=bot_engine.run, daemon=True)
     bot_thread.start()
     app_logger.info("Bot Engine started in a separate thread.")
 
-    # Start UI in the main thread (or another dedicated thread if main process needs to do more)
+    # Start UI in the main thread (passing plugin_loader_instance to UI)
     app_logger.info(f"Starting UI server on port {ui_port}...")
-    start_ui_server(bot_engine, ui_port) # UI needs bot_engine to get status/logs
+    start_ui_server(bot_engine, plugin_loader, ui_port) # UI needs bot_engine AND plugin_loader
 
-    # This part might not be reached if Flask/FastAPI's run blocks indefinitely
     app_logger.info("Bot system shutting down.")
     bot_engine.clean_logout()
 
